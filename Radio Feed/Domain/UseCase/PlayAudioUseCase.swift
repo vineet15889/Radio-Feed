@@ -17,6 +17,7 @@ protocol AudioPlaybackRepositoryProtocol: AnyObject {
     func pause()
     func resume()
     func stop()
+    func seek(to progress: Double)
     func togglePlayback(for post: AudioPost) throws
 }
 

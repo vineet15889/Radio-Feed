@@ -17,7 +17,7 @@ enum AudioPlayerError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .fileNotFound:        return "Audio file not found."
+        case .fileNotFound: return "Audio file not found."
         case .sessionSetupFailed(let e): return "Session error: \(e.localizedDescription)"
         case .playbackFailed(let e):     return "Playback failed: \(e.localizedDescription)"
         }
@@ -93,7 +93,7 @@ final class AudioPlayerService: NSObject {
         case .began:
             pauseInternal()
         case .ended:
-            // Don't auto-resume
+            // let the user decide
             break
         @unknown default:
             break
@@ -116,7 +116,6 @@ final class AudioPlayerService: NSObject {
         ]
     }
 
-    // MARK: - Internal control
 
     private func pauseInternal() {
         player?.pause()
@@ -134,6 +133,15 @@ final class AudioPlayerService: NSObject {
         playbackProgressSubject.send(0)
         stopProgressTimer()
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
+
+    private func finishInternal() {
+        player?.stop()
+        player = nil
+        isPlayingSubject.send(false)
+        playbackProgressSubject.send(0)
+        stopProgressTimer()
+        updateNowPlayingInfo(post: currentPost, playing: false)
     }
 
     private func startProgressTimer() {
@@ -154,7 +162,6 @@ final class AudioPlayerService: NSObject {
     }
 }
 
-// MARK: - AudioPlaybackRepositoryProtocol
 
 extension AudioPlayerService: AudioPlaybackRepositoryProtocol {
 
@@ -194,11 +201,21 @@ extension AudioPlayerService: AudioPlaybackRepositoryProtocol {
     func pause() { pauseInternal() }
 
     func resume() {
-        guard player != nil else { return }
+        if player == nil, let post = currentPost {
+            try? play(post: post)
+            return
+        }
         player?.play()
         isPlayingSubject.send(true)
         startProgressTimer()
         updateNowPlayingInfo(post: currentPost, playing: true)
+    }
+
+    func seek(to progress: Double) {
+        guard let player else { return }
+        player.currentTime = player.duration * max(0, min(1, progress))
+        playbackProgressSubject.send(progress)
+        updateNowPlayingInfo(post: currentPost, playing: isPlayingSubject.value)
     }
 
     func stop() { stopInternal() }
@@ -216,9 +233,10 @@ extension AudioPlayerService: AudioPlaybackRepositoryProtocol {
 
 extension AudioPlayerService: AVAudioPlayerDelegate {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        stopInternal()
+        finishInternal()
     }
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
         stopInternal()
     }
 }
+
